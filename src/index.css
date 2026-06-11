@@ -1,0 +1,35 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  @apply bg-surface text-white font-sans;
+}
+
+.leaflet-container {
+  border-radius: 0.75rem;
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-primary hover:bg-primary-dark text-white font-semibold px-4 py-2 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn-secondary {
+    @apply bg-slate-700 hover:bg-slate-600 text-white font-semibold px-4 py-2 rounded-lg transition-colors;
+  }
+  .btn-danger {
+    @apply bg-red-600 hover:bg-red-700 text-white font-semibold px-4 py-2 rounded-lg transition-colors;
+  }
+  .card {
+    @apply bg-card rounded-xl p-5 border border-slate-700;
+  }
+  .input {
+    @apply bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white w-full focus:outline-none focus:border-primary transition-colors;
+  }
+  .label {
+    @apply text-slate-400 text-sm font-medium mb-1 block;
+  }
+  .badge-normal     { @apply bg-slate-600 text-white text-xs px-2 py-0.5 rounded-full; }
+  .badge-mandatory  { @apply bg-green-700 text-white text-xs px-2 py-0.5 rounded-full; }
+  .badge-forbidden  { @apply bg-red-700 text-white text-xs px-2 py-0.5 rounded-full; }
+}
