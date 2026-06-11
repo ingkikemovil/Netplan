@@ -8,15 +8,31 @@ import ConnectionForm from '../components/ConnectionForm'
 import NetworkMap from '../components/NetworkMap'
 import ResultsPanel from '../components/ResultsPanel'
 import UploadExcel from '../components/UploadExcel'
+import CycleModal from '../components/CycleModal'
 import { Trash2, Play, ChevronDown, ChevronUp, MapPin, Link2, BarChart3 } from 'lucide-react'
 
 const CONN_TYPE_CYCLE = { normal: 'mandatory', mandatory: 'forbidden', forbidden: 'normal' }
-const CONN_BADGE = {
-  normal: 'badge-normal',
-  mandatory: 'badge-mandatory',
-  forbidden: 'badge-forbidden',
-}
+const CONN_BADGE = { normal: 'badge-normal', mandatory: 'badge-mandatory', forbidden: 'badge-forbidden' }
 const CONN_LABEL = { normal: 'Normal', mandatory: 'Obligatoria', forbidden: 'Prohibida' }
+
+// Union-Find para detectar ciclos
+function hasCycle(connections, srcId, tgtId) {
+  const parent = {}
+  const find = (x) => {
+    if (parent[x] === undefined) return x
+    if (parent[x] !== x) parent[x] = find(parent[x])
+    return parent[x]
+  }
+  const union = (a, b) => { parent[find(a)] = find(b) }
+
+  for (const c of connections) {
+    const u = find(c.source_node_id)
+    const v = find(c.target_node_id)
+    if (u === v) continue
+    union(c.source_node_id, c.target_node_id)
+  }
+  return find(srcId) === find(tgtId)
+}
 
 export default function ProjectEditor() {
   const { id } = useParams()
@@ -31,8 +47,10 @@ export default function ProjectEditor() {
   const [algorithm, setAlgorithm] = useState('kruskal')
   const [budget, setBudget] = useState('')
   const [calculating, setCalculating] = useState(false)
-  const [tab, setTab] = useState('nodes') // nodes | connections | results
+  const [tab, setTab] = useState('nodes')
   const [loading, setLoading] = useState(true)
+  const [prefillLatLng, setPrefillLatLng] = useState(null)
+  const [cycleModal, setCycleModal] = useState(null) // { data } pending connection
 
   useEffect(() => { loadAll() }, [id])
 
@@ -52,7 +70,7 @@ export default function ProjectEditor() {
           const r = await api.mst.results(id)
           setResult(r)
           setShowMst(true)
-        } catch { /* sin resultado previo */ }
+        } catch { }
       }
     } catch {
       toast.error('Error al cargar el proyecto')
@@ -62,11 +80,18 @@ export default function ProjectEditor() {
     }
   }
 
+  // Clic en mapa: ir a tab nodos y pre-rellenar coordenadas
+  const handleMapClick = (lat, lng) => {
+    setTab('nodes')
+    setPrefillLatLng({ lat, lng })
+  }
+
   // Nodos
   const handleAddNode = async (data) => {
     try {
       const n = await api.nodes.create(data)
       setNodes(prev => [...prev, n])
+      setPrefillLatLng(null)
       toast.success('Nodo agregado')
     } catch (err) { toast.error(err.message) }
   }
@@ -79,12 +104,20 @@ export default function ProjectEditor() {
     } catch (err) { toast.error(err.message) }
   }
 
-  // Conexiones
+  // Conexiones con deteccion de ciclos
   const handleAddConnection = async (data) => {
+    if (hasCycle(connections, data.source_node_id, data.target_node_id)) {
+      setCycleModal({ data })
+      return
+    }
+    await saveConnection(data)
+  }
+
+  const saveConnection = async (data) => {
     try {
       const c = await api.connections.create(data)
       setConnections(prev => [...prev, c])
-      toast.success('Conexión agregada')
+      toast.success('Conexion agregada')
     } catch (err) { toast.error(err.message) }
   }
 
@@ -106,7 +139,7 @@ export default function ProjectEditor() {
   // MST
   const handleCalculate = async () => {
     if (nodes.length < 2) return toast.error('Necesitas al menos 2 nodos')
-    if (connections.length === 0) return toast.error('Agrega al menos una conexión')
+    if (connections.length === 0) return toast.error('Agrega al menos una conexion')
     setCalculating(true)
     try {
       const r = await api.mst.calculate({
@@ -117,7 +150,7 @@ export default function ProjectEditor() {
       setResult(r)
       setShowMst(true)
       setTab('results')
-      toast.success('¡Árbol de expansión mínima calculado!')
+      toast.success('Arbol de expansion minima calculado!')
     } catch (err) {
       toast.error(err.message)
     } finally {
@@ -131,9 +164,19 @@ export default function ProjectEditor() {
 
   return (
     <div className="flex h-[calc(100vh-57px)]">
-      {/* Panel lateral izquierdo */}
+      {/* Modal ciclo */}
+      {cycleModal && (
+        <CycleModal
+          nodes={nodes}
+          srcId={cycleModal.data.source_node_id}
+          tgtId={cycleModal.data.target_node_id}
+          onAllow={async () => { setCycleModal(null); await saveConnection(cycleModal.data) }}
+          onCancel={() => setCycleModal(null)}
+        />
+      )}
+
+      {/* Panel lateral */}
       <div className="w-96 shrink-0 bg-card border-r border-slate-700 flex flex-col overflow-hidden">
-        {/* Header proyecto */}
         <div className="p-4 border-b border-slate-700">
           <h2 className="font-bold text-white text-lg truncate">{project?.name}</h2>
           {project?.description && <p className="text-slate-400 text-sm mt-1 line-clamp-2">{project.description}</p>}
@@ -158,21 +201,22 @@ export default function ProjectEditor() {
           ))}
         </div>
 
-        {/* Contenido del tab */}
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
           {/* TAB: NODOS */}
           {tab === 'nodes' && (
             <>
+              <div className="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-xs text-slate-400 flex items-center gap-2">
+                <MapPin size={12} className="text-primary shrink-0" />
+                Haz clic en el mapa para colocar un nodo automaticamente
+              </div>
               <UploadExcel projectId={id} nodes={nodes} onImported={loadAll} />
               <div className="border-t border-slate-700 pt-4">
                 <p className="text-slate-400 text-xs font-semibold uppercase mb-3">Agregar nodo manual</p>
-                <NodeForm projectId={id} onCreated={handleAddNode} />
+                <NodeForm projectId={id} onCreated={handleAddNode} prefillLatLng={prefillLatLng} />
               </div>
               <div className="border-t border-slate-700 pt-4">
-                <p className="text-slate-400 text-xs font-semibold uppercase mb-2">
-                  Nodos ({nodes.length})
-                </p>
+                <p className="text-slate-400 text-xs font-semibold uppercase mb-2">Nodos ({nodes.length})</p>
                 <div className="space-y-2">
                   {nodes.map(n => (
                     <div key={n.id} className="flex items-center justify-between bg-slate-800 rounded-lg px-3 py-2">
@@ -185,7 +229,7 @@ export default function ProjectEditor() {
                       </button>
                     </div>
                   ))}
-                  {nodes.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Sin nodos aún</p>}
+                  {nodes.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Sin nodos aun</p>}
                 </div>
               </div>
             </>
@@ -196,9 +240,7 @@ export default function ProjectEditor() {
             <>
               <ConnectionForm projectId={id} nodes={nodes} onCreated={handleAddConnection} />
               <div className="border-t border-slate-700 pt-4">
-                <p className="text-slate-400 text-xs font-semibold uppercase mb-1">
-                  Conexiones ({connections.length})
-                </p>
+                <p className="text-slate-400 text-xs font-semibold uppercase mb-1">Conexiones ({connections.length})</p>
                 <p className="text-slate-500 text-xs mb-3">Haz clic en el badge para cambiar el tipo</p>
                 <div className="space-y-2">
                   {connections.map(c => {
@@ -224,7 +266,7 @@ export default function ProjectEditor() {
                       </div>
                     )
                   })}
-                  {connections.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Sin conexiones aún</p>}
+                  {connections.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Sin conexiones aun</p>}
                 </div>
               </div>
             </>
@@ -233,7 +275,6 @@ export default function ProjectEditor() {
           {/* TAB: RESULTADOS */}
           {tab === 'results' && (
             <>
-              {/* Configuración del cálculo */}
               <div className="space-y-3">
                 <div>
                   <label className="label">Algoritmo</label>
@@ -243,8 +284,8 @@ export default function ProjectEditor() {
                   </select>
                 </div>
                 <div>
-                  <label className="label">Presupuesto máximo (opcional)</label>
-                  <input className="input" type="number" min="0" step="any" value={budget} onChange={e => setBudget(e.target.value)} placeholder="Sin límite" />
+                  <label className="label">Presupuesto maximo (opcional)</label>
+                  <input className="input" type="number" min="0" step="any" value={budget} onChange={e => setBudget(e.target.value)} placeholder="Sin limite" />
                 </div>
                 <button
                   onClick={handleCalculate}
@@ -257,24 +298,22 @@ export default function ProjectEditor() {
               </div>
 
               {result && (
-                <>
-                  <div className="border-t border-slate-700 pt-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <p className="text-slate-400 text-xs font-semibold uppercase">Resultado</p>
-                      <button
-                        onClick={() => setShowMst(!showMst)}
-                        className="text-xs text-primary hover:underline flex items-center gap-1"
-                      >
-                        {showMst ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
-                        {showMst ? 'Ocultar MST' : 'Mostrar MST'}
-                      </button>
-                    </div>
-                    <ResultsPanel result={result} projectName={project?.name} />
+                <div className="border-t border-slate-700 pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-slate-400 text-xs font-semibold uppercase">Resultado</p>
+                    <button
+                      onClick={() => setShowMst(!showMst)}
+                      className="text-xs text-primary hover:underline flex items-center gap-1"
+                    >
+                      {showMst ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+                      {showMst ? 'Ocultar MST' : 'Mostrar MST'}
+                    </button>
                   </div>
-                </>
+                  <ResultsPanel result={result} projectName={project?.name} />
+                </div>
               )}
 
-              {!result && <p className="text-slate-500 text-sm text-center py-8">Aún no hay resultados calculados</p>}
+              {!result && <p className="text-slate-500 text-sm text-center py-8">Aun no hay resultados calculados</p>}
             </>
           )}
         </div>
@@ -287,8 +326,8 @@ export default function ProjectEditor() {
           connections={connections}
           mstEdges={result?.tree_edges || []}
           showMst={showMst}
+          onMapClick={handleMapClick}
         />
-        {/* Toggle overlay */}
         {result && (
           <div className="absolute top-4 right-4 z-[1000] bg-card border border-slate-700 rounded-lg p-2 flex items-center gap-2">
             <span className="text-xs text-slate-400">Ver MST</span>

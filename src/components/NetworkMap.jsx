@@ -1,37 +1,45 @@
-import { MapContainer, TileLayer, CircleMarker, Polyline, Popup } from 'react-leaflet'
+import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, useMapEvents } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 
 const TYPE_COLORS = { city: '#3b82f6', tower: '#f59e0b', datacenter: '#10b981', other: '#8b5cf6' }
 const CONN_COLORS = { normal: '#64748b', mandatory: '#22c55e', forbidden: '#ef4444' }
 
-export default function NetworkMap({ nodes, connections, mstEdges = [], showMst = false }) {
-  if (nodes.length === 0) {
-    return (
-      <div className="flex items-center justify-center h-full text-slate-500 text-sm">
-        Agrega nodos para visualizar el mapa
-      </div>
-    )
-  }
+function ClickHandler({ onMapClick }) {
+  useMapEvents({
+    click(e) {
+      onMapClick(e.latlng.lat, e.latlng.lng)
+    },
+  })
+  return null
+}
 
-  const center = [
-    nodes.reduce((s, n) => s + n.latitude, 0) / nodes.length,
-    nodes.reduce((s, n) => s + n.longitude, 0) / nodes.length,
-  ]
+export default function NetworkMap({ nodes, connections, mstEdges = [], showMst = false, onMapClick }) {
+  const center = nodes.length > 0
+    ? [
+        nodes.reduce((s, n) => s + n.latitude, 0) / nodes.length,
+        nodes.reduce((s, n) => s + n.longitude, 0) / nodes.length,
+      ]
+    : [11.5444, -72.9072]
 
   const nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]))
 
-  const mstPairs = new Set(
-    mstEdges.map(e => `${e.source_node_id}-${e.target_node_id}`)
-  )
-
   return (
-    <MapContainer center={center} zoom={7} style={{ height: '100%', width: '100%' }} key={nodes.length}>
+    <MapContainer center={center} zoom={nodes.length > 0 ? 7 : 6} style={{ height: '100%', width: '100%' }} key={nodes.length === 0 ? 'empty' : nodes[0]?.id}>
       <TileLayer
         url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
       />
 
-      {/* Todas las conexiones (gris claro) */}
+      {onMapClick && <ClickHandler onMapClick={onMapClick} />}
+
+      {/* Instruccion cuando no hay nodos */}
+      {nodes.length === 0 && (
+        <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 1000, background: 'rgba(15,23,42,0.85)', color: '#94a3b8', padding: '12px 20px', borderRadius: 8, fontSize: 13, pointerEvents: 'none', whiteSpace: 'nowrap' }}>
+          Haz clic en el mapa para agregar un nodo
+        </div>
+      )}
+
+      {/* Todas las conexiones */}
       {!showMst && connections.map(c => {
         const src = nodeMap[c.source_node_id] || (c.source && { latitude: c.source.latitude, longitude: c.source.longitude })
         const tgt = nodeMap[c.target_node_id] || (c.target && { latitude: c.target.latitude, longitude: c.target.longitude })
@@ -47,7 +55,7 @@ export default function NetworkMap({ nodes, connections, mstEdges = [], showMst 
         )
       })}
 
-      {/* MST resultante (azul brillante) */}
+      {/* MST resultante */}
       {showMst && mstEdges.map((e, i) => {
         const src = e.source || nodeMap[e.source_node_id]
         const tgt = e.target || nodeMap[e.target_node_id]
