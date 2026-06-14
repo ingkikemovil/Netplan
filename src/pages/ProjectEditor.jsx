@@ -9,7 +9,7 @@ import NetworkMap from '../components/NetworkMap'
 import ResultsPanel from '../components/ResultsPanel'
 import UploadExcel from '../components/UploadExcel'
 import CycleModal from '../components/CycleModal'
-import { Trash2, Play, ChevronDown, ChevronUp, MapPin, Link2, BarChart3 } from 'lucide-react'
+import { Trash2, Play, ChevronDown, ChevronUp, MapPin, Link2, BarChart3, Undo2 } from 'lucide-react'
 
 const CONN_TYPE_CYCLE = { normal: 'mandatory', mandatory: 'forbidden', forbidden: 'normal' }
 const CONN_BADGE = { normal: 'badge-normal', mandatory: 'badge-mandatory', forbidden: 'badge-forbidden' }
@@ -50,7 +50,8 @@ export default function ProjectEditor() {
   const [tab, setTab] = useState('nodes')
   const [loading, setLoading] = useState(true)
   const [prefillLatLng, setPrefillLatLng] = useState(null)
-  const [cycleModal, setCycleModal] = useState(null) // { data } pending connection
+  const [cycleModal, setCycleModal] = useState(null)
+  const [history, setHistory] = useState([]) // pila de acciones deshacer
 
   useEffect(() => { loadAll() }, [id])
 
@@ -96,11 +97,15 @@ export default function ProjectEditor() {
     } catch (err) { toast.error(err.message) }
   }
 
-  const handleDeleteNode = async (nodeId) => {
+  const handleDeleteNode = async (node) => {
+    if (!window.confirm(`¿Eliminar el nodo "${node.name}"? También se eliminarán sus conexiones.`)) return
+    const removedConns = connections.filter(c => c.source_node_id === node.id || c.target_node_id === node.id)
     try {
-      await api.nodes.delete(nodeId)
-      setNodes(prev => prev.filter(n => n.id !== nodeId))
-      setConnections(prev => prev.filter(c => c.source_node_id !== nodeId && c.target_node_id !== nodeId))
+      await api.nodes.delete(node.id)
+      setNodes(prev => prev.filter(n => n.id !== node.id))
+      setConnections(prev => prev.filter(c => c.source_node_id !== node.id && c.target_node_id !== node.id))
+      setHistory(h => [...h, { type: 'delete_node', node, conns: removedConns }])
+      toast.success(`Nodo "${node.name}" eliminado`)
     } catch (err) { toast.error(err.message) }
   }
 
@@ -129,11 +134,37 @@ export default function ProjectEditor() {
     } catch (err) { toast.error(err.message) }
   }
 
-  const handleDeleteConn = async (connId) => {
+  const handleDeleteConn = async (conn) => {
+    if (!window.confirm(`¿Eliminar la conexión entre "${nodeMap[conn.source_node_id]?.name}" y "${nodeMap[conn.target_node_id]?.name}"?`)) return
     try {
-      await api.connections.delete(connId)
-      setConnections(prev => prev.filter(c => c.id !== connId))
+      await api.connections.delete(conn.id)
+      setConnections(prev => prev.filter(c => c.id !== conn.id))
+      setHistory(h => [...h, { type: 'delete_conn', conn }])
+      toast.success('Conexión eliminada')
     } catch (err) { toast.error(err.message) }
+  }
+
+  const handleUndo = async () => {
+    const last = history[history.length - 1]
+    if (!last) return
+    try {
+      if (last.type === 'delete_node') {
+        const n = await api.nodes.create({ ...last.node, project_id: id })
+        setNodes(prev => [...prev, n])
+        for (const c of last.conns) {
+          try {
+            const nc = await api.connections.create({ ...c, project_id: id })
+            setConnections(prev => [...prev, nc])
+          } catch {}
+        }
+        toast.success(`Nodo "${last.node.name}" restaurado`)
+      } else if (last.type === 'delete_conn') {
+        const c = await api.connections.create({ ...last.conn, project_id: id })
+        setConnections(prev => [...prev, c])
+        toast.success('Conexión restaurada')
+      }
+      setHistory(h => h.slice(0, -1))
+    } catch (err) { toast.error('No se pudo deshacer: ' + err.message) }
   }
 
   // MST
@@ -216,16 +247,27 @@ export default function ProjectEditor() {
                 <NodeForm projectId={id} onCreated={handleAddNode} prefillLatLng={prefillLatLng} />
               </div>
               <div className="border-t border-slate-700 pt-4">
-                <p className="text-slate-400 text-xs font-semibold uppercase mb-2">Nodos ({nodes.length})</p>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-slate-400 text-xs font-semibold uppercase">Nodos ({nodes.length})</p>
+                  {history.length > 0 && (
+                    <button onClick={handleUndo} className="flex items-center gap-1 text-xs text-yellow-400 hover:text-yellow-300 transition-colors">
+                      <Undo2 size={12} /> Deshacer
+                    </button>
+                  )}
+                </div>
                 <div className="space-y-2">
                   {nodes.map(n => (
-                    <div key={n.id} className="flex items-center justify-between bg-slate-800 rounded-lg px-3 py-2">
+                    <div key={n.id} className="flex items-center justify-between bg-slate-800 rounded-lg px-3 py-2 group">
                       <div>
                         <p className="text-white text-sm font-medium">{n.name}</p>
                         <p className="text-slate-500 text-xs">{n.node_type} · {n.latitude?.toFixed(3)}, {n.longitude?.toFixed(3)}</p>
                       </div>
-                      <button onClick={() => handleDeleteNode(n.id)} className="text-slate-600 hover:text-red-400 transition-colors">
-                        <Trash2 size={14} />
+                      <button
+                        onClick={() => handleDeleteNode(n)}
+                        className="flex items-center gap-1 px-2 py-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/30 hover:text-red-300 transition-colors text-xs"
+                        title="Eliminar nodo"
+                      >
+                        <Trash2 size={13} /> Borrar
                       </button>
                     </div>
                   ))}
@@ -240,8 +282,15 @@ export default function ProjectEditor() {
             <>
               <ConnectionForm projectId={id} nodes={nodes} onCreated={handleAddConnection} />
               <div className="border-t border-slate-700 pt-4">
-                <p className="text-slate-400 text-xs font-semibold uppercase mb-1">Conexiones ({connections.length})</p>
-                <p className="text-slate-500 text-xs mb-3">Haz clic en el badge para cambiar el tipo</p>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-slate-400 text-xs font-semibold uppercase">Conexiones ({connections.length})</p>
+                  {history.length > 0 && (
+                    <button onClick={handleUndo} className="flex items-center gap-1 text-xs text-yellow-400 hover:text-yellow-300 transition-colors">
+                      <Undo2 size={12} /> Deshacer
+                    </button>
+                  )}
+                </div>
+                <p className="text-slate-500 text-xs mb-3">Clic en el badge para cambiar el tipo</p>
                 <div className="space-y-2">
                   {connections.map(c => {
                     const src = nodeMap[c.source_node_id] || c.source
@@ -260,8 +309,11 @@ export default function ProjectEditor() {
                             <span className="text-slate-500 text-xs">{c.cost}</span>
                           </div>
                         </div>
-                        <button onClick={() => handleDeleteConn(c.id)} className="text-slate-600 hover:text-red-400 transition-colors ml-2">
-                          <Trash2 size={14} />
+                        <button
+                          onClick={() => handleDeleteConn(c)}
+                          className="flex items-center gap-1 px-2 py-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/30 hover:text-red-300 transition-colors text-xs ml-2 shrink-0"
+                        >
+                          <Trash2 size={12} /> Borrar
                         </button>
                       </div>
                     )
