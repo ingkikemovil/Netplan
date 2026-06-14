@@ -8,9 +8,13 @@ export default function NodeForm({ projectId, onCreated, prefillLatLng }) {
   const [form, setForm] = useState({ name: '', node_type: 'city', latitude: '', longitude: '', address: '' })
   const [loading, setLoading] = useState(false)
 
+  const [highlighted, setHighlighted] = useState(false)
+
   useEffect(() => {
     if (prefillLatLng) {
       setForm(f => ({ ...f, latitude: prefillLatLng.lat.toFixed(6), longitude: prefillLatLng.lng.toFixed(6) }))
+      setHighlighted(true)
+      setTimeout(() => setHighlighted(false), 2000)
     }
   }, [prefillLatLng])
 
@@ -51,11 +55,11 @@ export default function NodeForm({ projectId, onCreated, prefillLatLng }) {
       <div className="grid grid-cols-2 gap-3">
         <div>
           <label className="label">Latitud *</label>
-          <input className="input" type="number" step="any" value={form.latitude} onChange={e => set('latitude', e.target.value)} placeholder="Haz clic en el mapa" required />
+          <input className={`input transition-all ${highlighted ? 'ring-2 ring-green-400 border-green-400' : ''}`} type="number" step="any" value={form.latitude} onChange={e => set('latitude', e.target.value)} placeholder="Haz clic en el mapa" required />
         </div>
         <div>
           <label className="label">Longitud *</label>
-          <input className="input" type="number" step="any" value={form.longitude} onChange={e => set('longitude', e.target.value)} placeholder="Haz clic en el mapa" required />
+          <input className={`input transition-all ${highlighted ? 'ring-2 ring-green-400 border-green-400' : ''}`} type="number" step="any" value={form.longitude} onChange={e => set('longitude', e.target.value)} placeholder="Haz clic en el mapa" required />
         </div>
       </div>
       <p className="text-slate-500 text-xs">O haz clic directamente en el mapa para fijar la posicion</p>

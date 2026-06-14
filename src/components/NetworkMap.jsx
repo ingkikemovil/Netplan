@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { MapContainer, TileLayer, CircleMarker, Polyline, Popup, useMapEvents, useMap } from 'react-leaflet'
 import 'leaflet/dist/leaflet.css'
 
@@ -8,19 +8,33 @@ const CONN_COLORS = { normal: '#64748b', mandatory: '#22c55e', forbidden: '#ef44
 function ClickHandler({ onMapClick }) {
   useMapEvents({
     click(e) {
-      onMapClick(e.latlng.lat, e.latlng.lng)
+      // Solo disparar si no se hizo clic en un marker (Popup abierto o CircleMarker)
+      if (!e.originalEvent._stopped) {
+        onMapClick(e.latlng.lat, e.latlng.lng)
+      }
     },
   })
   return null
 }
 
-function RecenterMap({ center, nodes }) {
+function AutoZoom({ nodes }) {
   const map = useMap()
+  const prevLen = useRef(0)
+
   useEffect(() => {
-    if (nodes.length > 0) {
-      map.setView(center, map.getZoom(), { animate: true })
+    if (nodes.length === 0) return
+    if (nodes.length === 1 && prevLen.current === 0) {
+      // Primer nodo: centrar y hacer zoom
+      map.setView([nodes[0].latitude, nodes[0].longitude], 10, { animate: true })
+    } else if (nodes.length > prevLen.current) {
+      // Nodo adicional: solo re-centrar sin cambiar zoom
+      const lat = nodes.reduce((s, n) => s + n.latitude, 0) / nodes.length
+      const lng = nodes.reduce((s, n) => s + n.longitude, 0) / nodes.length
+      map.setView([lat, lng], map.getZoom(), { animate: true })
     }
+    prevLen.current = nodes.length
   }, [nodes.length])
+
   return null
 }
 
@@ -36,27 +50,28 @@ export default function NetworkMap({ nodes, connections, mstEdges = [], showMst 
 
   return (
     <div style={{ height: '100%', width: '100%', position: 'relative' }}>
-      {/* Hint overlay encima del mapa */}
+      {/* Hint cuando no hay nodos */}
       {nodes.length === 0 && (
         <div style={{
           position: 'absolute', top: '50%', left: '50%',
           transform: 'translate(-50%, -50%)',
           zIndex: 1000,
-          background: 'rgba(15,23,42,0.85)',
+          background: 'rgba(15,23,42,0.88)',
           color: '#94a3b8',
           padding: '12px 20px',
           borderRadius: 8,
           fontSize: 13,
           pointerEvents: 'none',
           whiteSpace: 'nowrap',
+          border: '1px solid #334155',
         }}>
-          Haz clic en el mapa para agregar un nodo
+          📍 Haz clic en el mapa para agregar un nodo
         </div>
       )}
 
       <MapContainer
         center={center}
-        zoom={nodes.length > 0 ? 8 : 7}
+        zoom={10}
         style={{ height: '100%', width: '100%' }}
         key="netplan-map"
       >
@@ -65,7 +80,7 @@ export default function NetworkMap({ nodes, connections, mstEdges = [], showMst 
           attribution='© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         />
 
-        <RecenterMap center={center} nodes={nodes} />
+        <AutoZoom nodes={nodes} />
         {onMapClick && <ClickHandler onMapClick={onMapClick} />}
 
         {/* Conexiones normales */}
@@ -110,8 +125,14 @@ export default function NetworkMap({ nodes, connections, mstEdges = [], showMst 
           <CircleMarker
             key={n.id}
             center={[n.latitude, n.longitude]}
-            radius={8}
+            radius={9}
             pathOptions={{ fillColor: TYPE_COLORS[n.node_type] || '#3b82f6', color: '#fff', weight: 2, fillOpacity: 1 }}
+            eventHandlers={{
+              click: (e) => {
+                // Marcar el evento para que ClickHandler no lo procese
+                e.originalEvent._stopped = true
+              }
+            }}
           >
             <Popup>
               <strong>{n.name}</strong><br />
