@@ -9,7 +9,7 @@ import NetworkMap from '../components/NetworkMap'
 import ResultsPanel from '../components/ResultsPanel'
 import UploadExcel from '../components/UploadExcel'
 import CycleModal from '../components/CycleModal'
-import { Trash2, Play, ChevronDown, ChevronUp, MapPin, Link2, BarChart3, Undo2 } from 'lucide-react'
+import { Trash2, Play, ChevronDown, ChevronUp, MapPin, Link2, BarChart3, Undo2, Search } from 'lucide-react'
 
 const CONN_TYPE_CYCLE = { normal: 'mandatory', mandatory: 'forbidden', forbidden: 'normal' }
 const CONN_BADGE = { normal: 'badge-normal', mandatory: 'badge-mandatory', forbidden: 'badge-forbidden' }
@@ -51,7 +51,9 @@ export default function ProjectEditor() {
   const [loading, setLoading] = useState(true)
   const [prefillLatLng, setPrefillLatLng] = useState(null)
   const [cycleModal, setCycleModal] = useState(null)
-  const [history, setHistory] = useState([]) // pila de acciones deshacer
+  const [history, setHistory] = useState([])
+  const [nodeFilter, setNodeFilter] = useState({ search: '', type: '' })
+  const [connFilter, setConnFilter] = useState({ search: '', type: '' })
 
   useEffect(() => { loadAll() }, [id])
 
@@ -191,6 +193,24 @@ export default function ProjectEditor() {
 
   const nodeMap = Object.fromEntries(nodes.map(n => [n.id, n]))
 
+  const filteredNodes = nodes.filter(n => {
+    const matchSearch = !nodeFilter.search || n.name.toLowerCase().includes(nodeFilter.search.toLowerCase())
+    const matchType = !nodeFilter.type || n.node_type === nodeFilter.type
+    return matchSearch && matchType
+  })
+
+  const filteredConns = connections.filter(c => {
+    const src = nodeMap[c.source_node_id] || c.source
+    const tgt = nodeMap[c.target_node_id] || c.target
+    const srcName = src?.name || ''
+    const tgtName = tgt?.name || ''
+    const matchSearch = !connFilter.search ||
+      srcName.toLowerCase().includes(connFilter.search.toLowerCase()) ||
+      tgtName.toLowerCase().includes(connFilter.search.toLowerCase())
+    const matchType = !connFilter.type || c.conn_type === connFilter.type
+    return matchSearch && matchType
+  })
+
   if (loading) return <div className="flex items-center justify-center h-96 text-slate-400">Cargando proyecto...</div>
 
   return (
@@ -255,8 +275,31 @@ export default function ProjectEditor() {
                     </button>
                   )}
                 </div>
+                {/* Filtros nodos */}
+                <div className="flex gap-2 mb-2">
+                  <div className="relative flex-1">
+                    <Search size={12} className="absolute left-2 top-2 text-slate-500" />
+                    <input
+                      className="input pl-6 py-1.5 text-xs"
+                      placeholder="Buscar nodo..."
+                      value={nodeFilter.search}
+                      onChange={e => setNodeFilter(f => ({ ...f, search: e.target.value }))}
+                    />
+                  </div>
+                  <select
+                    className="input py-1.5 text-xs w-28 shrink-0"
+                    value={nodeFilter.type}
+                    onChange={e => setNodeFilter(f => ({ ...f, type: e.target.value }))}
+                  >
+                    <option value="">Todos</option>
+                    <option value="city">Ciudad</option>
+                    <option value="tower">Torre</option>
+                    <option value="datacenter">Data center</option>
+                    <option value="other">Otro</option>
+                  </select>
+                </div>
                 <div className="space-y-2">
-                  {nodes.map(n => (
+                  {filteredNodes.map(n => (
                     <div key={n.id} className="flex items-center justify-between bg-slate-800 rounded-lg px-3 py-2 group">
                       <div>
                         <p className="text-white text-sm font-medium">{n.name}</p>
@@ -272,6 +315,7 @@ export default function ProjectEditor() {
                     </div>
                   ))}
                   {nodes.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Sin nodos aun</p>}
+                  {nodes.length > 0 && filteredNodes.length === 0 && <p className="text-slate-500 text-xs text-center py-3">Sin resultados para el filtro</p>}
                 </div>
               </div>
             </>
@@ -290,9 +334,31 @@ export default function ProjectEditor() {
                     </button>
                   )}
                 </div>
-                <p className="text-slate-500 text-xs mb-3">Clic en el badge para cambiar el tipo</p>
+                {/* Filtros conexiones */}
+                <div className="flex gap-2 mb-2">
+                  <div className="relative flex-1">
+                    <Search size={12} className="absolute left-2 top-2 text-slate-500" />
+                    <input
+                      className="input pl-6 py-1.5 text-xs"
+                      placeholder="Buscar nodo..."
+                      value={connFilter.search}
+                      onChange={e => setConnFilter(f => ({ ...f, search: e.target.value }))}
+                    />
+                  </div>
+                  <select
+                    className="input py-1.5 text-xs w-28 shrink-0"
+                    value={connFilter.type}
+                    onChange={e => setConnFilter(f => ({ ...f, type: e.target.value }))}
+                  >
+                    <option value="">Todos</option>
+                    <option value="normal">Normal</option>
+                    <option value="mandatory">Obligatoria</option>
+                    <option value="forbidden">Prohibida</option>
+                  </select>
+                </div>
+                <p className="text-slate-500 text-xs mb-2">Clic en el badge para cambiar el tipo</p>
                 <div className="space-y-2">
-                  {connections.map(c => {
+                  {filteredConns.map(c => {
                     const src = nodeMap[c.source_node_id] || c.source
                     const tgt = nodeMap[c.target_node_id] || c.target
                     return (
@@ -319,6 +385,7 @@ export default function ProjectEditor() {
                     )
                   })}
                   {connections.length === 0 && <p className="text-slate-500 text-sm text-center py-4">Sin conexiones aun</p>}
+                  {connections.length > 0 && filteredConns.length === 0 && <p className="text-slate-500 text-xs text-center py-3">Sin resultados para el filtro</p>}
                 </div>
               </div>
             </>

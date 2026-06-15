@@ -45,7 +45,10 @@ export const api = {
       const fd = new FormData()
       fd.append('file', file)
       const res = await fetch(`${BASE}/api/upload/excel`, { method: 'POST', body: fd })
-      if (!res.ok) throw new Error('Error al procesar el Excel')
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ detail: 'Error al procesar el archivo' }))
+        throw new Error(err.detail || 'Error al procesar el Excel')
+      }
       return res.json()
     },
   },
